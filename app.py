@@ -51,18 +51,27 @@ comps = load_competitors()
 st.title("MEO 監視＆提案ツール（デモ）")
 st.caption("※ 擬似データ。実運用時はCSV/スプレッドシート差し替えで即稼働")
 
-# フィルタ
+# 安全なユニーク抽出（NaN除去 → 文字列化 → ソート）
+def uniq_sorted_str(series: pd.Series):
+    return sorted(series.dropna().astype(str).unique().tolist())
+
 col_f1, col_f2, col_f3 = st.columns([1,1,1])
 with col_f1:
-    kw = st.selectbox("キーワード", sorted(rankings["keyword"].unique()))
+    kw = st.selectbox("キーワード", uniq_sorted_str(rankings["keyword"]))
 with col_f2:
     days = st.slider("表示日数", min_value=7, max_value=60, value=30, step=1)
 with col_f3:
-    show_hotels = st.multiselect("ホテル選択", sorted(rankings["hotel"].unique()),
-                                 default=sorted(rankings["hotel"].unique()))
+    hotels_all = uniq_sorted_str(rankings["hotel"])
+    show_hotels = st.multiselect("ホテル選択", hotels_all, default=hotels_all)
+
 
 cutoff = rankings["date"].max() - pd.to_timedelta(days-1, unit="D")
 dfv = rankings[(rankings["keyword"]==kw) & (rankings["hotel"].isin(show_hotels)) & (rankings["date"]>=cutoff)].copy()
+
+# ここにガードを追加
+if dfv.empty:
+    st.info("選択条件に一致するデータがありません。データ/CSVを確認してください。")
+    st.stop()
 
 # KPI（現時点順位・先週比）
 today = dfv["date"].max()
