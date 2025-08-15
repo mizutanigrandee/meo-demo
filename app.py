@@ -138,6 +138,11 @@ if rankings_raw is None:
 # 前処理：date型統一
 rankings = to_datetime_and_sort(rankings_raw)
 
+# 日付整形の直後に追加
+if "rank" in rankings.columns:
+    rankings["rank"] = pd.to_numeric(rankings["rank"], errors="coerce")
+
+
 # 競合KPI（ローカル or デフォルト）
 comps = load_competitors_from_local()
 
@@ -202,28 +207,60 @@ def get_rank(hotel_name: str, frame: pd.DataFrame):
     r = frame[frame["hotel"] == hotel_name]
     return int(r["rank"].values[0]) if not r.empty else None
 
+# ーー KPI（NaN安全版）ここから ーー
+today = dfv["date"].max()
+last_week = today - pd.to_timedelta(7, "D")
+today_rows = dfv[dfv["date"] == today].copy()
+lw_rows    = dfv[dfv["date"] == last_week].copy()
+
+def safe_int(v):
+    return int(v) if pd.notna(v) else None
+
+def get_rank(hotel_name: str, frame: pd.DataFrame):
+    r = frame[frame["hotel"] == hotel_name]
+    if r.empty:
+        return None
+    return safe_int(r["rank"].values[0])
+
 c1, c2, c3 = st.columns(3)
 
-my_rank_today = get_rank("ホテルザグランデ", today_rows)
-my_rank_lw    = get_rank("ホテルザグランデ", lw_rows)
+# 自館の今日/先週
+MY_HOTEL = "ホテルザグランデ"
+my_rank_today = get_rank(MY_HOTEL, today_rows)
+my_rank_lw    = get_rank(MY_HOTEL, lw_rows)
 delta = None
 if (my_rank_today is not None) and (my_rank_lw is not None):
-    delta = my_rank_lw - my_rank_today  # 良化で+、悪化で-
+    delta = my_rank_lw - my_rank_today  # 良化でプラス表示
 
-c1.metric("現在順位（自館）", f"{my_rank_today if my_rank_today is not None else '-'} 位",
-          f"{'+' if (delta is not None and delta >= 0) else ''}{delta if delta is not None else 0} vs 先週")
-
-comp_best = (
-    today_rows[today_rows["hotel"] != "ホテルザグランデ"]
-    .sort_values("rank", ascending=True)
-    .head(1)
+c1.metric(
+    "現在順位（自館）",
+    f"{my_rank_today if my_rank_today is not None else '-'} 位",
+    f"{'+' if (delta is not None and delta >= 0) else ''}{delta if delta is not None else 0} vs 先週"
 )
-best_hotel = comp_best["hotel"].values[0] if not comp_best.empty else "-"
-best_rank = int(comp_best["rank"].values[0]) if not comp_best.empty else "-"
-c2.metric("競合ベスト順位", f"{best_rank} 位", best_hotel)
 
-avg_rank = today_rows["rank"].mean() if not today_rows.empty else None
-c3.metric("今日の平均順位（選択ホテル）", f"{avg_rank:.1f}" if avg_rank is not None else "-")
+# 競合ベスト（NaN除外）
+comp_pool = today_rows[
+    (today_rows["hotel"] != MY_HOTEL) & (pd.notna(today_rows["rank"]))
+]
+if comp_pool.empty:
+    best_hotel, best_rank = "-", "-"
+else:
+    comp_best = comp_pool.nsmallest(1, "rank")
+    best_hotel = comp_best["hotel"].values[0]
+    best_rank_val = comp_best["rank"].values[0]
+    best_rank = safe_int(best_rank_val) if best_rank_val is not None else "-"
+
+c2.metric("競合ベスト順位", f"{best_rank} 位" if best_rank != "-" else "-", best_hotel)
+
+# 平均順位（NaN除外）
+avg_rank = today_rows["rank"].dropna().mean()
+c3.metric("今日の平均順位（選択ホテル）", f"{avg_rank:.1f}" if pd.notna(avg_rank) else "-")
+
+# 入力不足の注意
+if today_rows["rank"].isna().any():
+    st.caption("ℹ️ 一部ホテルの rank が未入力です（平均や競合ベストに反映されません）。")
+# ーー KPI（NaN安全版）ここまで ーー
+
 
 st.divider()
 
