@@ -34,7 +34,7 @@ TARGET_HOTELS = [
 DEFAULT_KW = "心斎橋 ホテル"
 
 # ==== ユーティリティ ========================================================
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def load_csv(url_or_path: str) -> pd.DataFrame:
     try:
         df = pd.read_csv(url_or_path)
