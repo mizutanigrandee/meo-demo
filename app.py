@@ -149,24 +149,29 @@ st.title("MEO 監視＆提案ツール（デモ）")
 col_f1, col_f2, col_f3 = st.columns([1,1,2])
 
 with col_f1:
-    # 固定KWのうち、データに存在するものだけ候補にする
-    kws_in_data = set(rankings["keyword"].astype(str)) if "keyword" in rankings.columns else set()
-    kw_options = [k for k in KEYWORDS_FIXED if k in kws_in_data] or uniq_sorted_str(rankings["keyword"])
-    kw = st.selectbox("キーワード", kw_options)
+    data_kws = uniq_sorted_str(rankings["keyword"]) if "keyword" in rankings.columns else []
+    # 表示候補：固定KW + データ上のKW（重複除去）
+    kw_options = list(dict.fromkeys(KEYWORDS_FIXED + [k for k in data_kws if k not in KEYWORDS_FIXED]))
+    # 既定選択：固定KWのうち「データにあるもの」→ なければ data_kws 先頭 → 固定1つ目
+    default_kw = next((k for k in KEYWORDS_FIXED if k in data_kws), (data_kws[0] if data_kws else KEYWORDS_FIXED[0]))
+    kw = st.selectbox("キーワード", kw_options, index=kw_options.index(default_kw))
 
 with col_f2:
     days = st.slider("表示日数", min_value=7, max_value=90, value=30, step=1)
 
 with col_f3:
-    hotels_all = uniq_sorted_str(rankings["hotel"]) if "hotel" in rankings.columns else []
-    # 固定競合とデータの突き合わせ（データに無い名前は自然に外れる）
-    default_hotels = [h for h in COMPETITOR_HOTELS_FIXED if h in hotels_all]
-    # 自館がデータに含まれれば自動で足す
-    if "ホテルザグランデ" in hotels_all and "ホテルザグランデ" not in default_hotels:
-        default_hotels = ["ホテルザグランデ"] + default_hotels
-    if not default_hotels:
-        default_hotels = hotels_all  # フォールバック
-    show_hotels = st.multiselect("ホテル選択", hotels_all, default=default_hotels)
+    data_hotels = uniq_sorted_str(rankings["hotel"]) if "hotel" in rankings.columns else []
+    # 表示候補：データのホテル + 自館 + 固定競合 を統合（重複除去）
+    hotels_all = list(dict.fromkeys(data_hotels + ["ホテルザグランデ"] + COMPETITOR_HOTELS_FIXED))
+    # 既定選択：自館 + 固定競合（リストにあるものだけ）
+    default_hotels = ["ホテルザグランデ"] + COMPETITOR_HOTELS_FIXED
+    show_hotels = st.multiselect("ホテル選択", hotels_all, default=[h for h in default_hotels if h in hotels_all])
+
+    # データに無いホテルが選択された場合の注意書き
+    missing = [h for h in show_hotels if h not in data_hotels]
+    if missing:
+        st.caption("⚠️ これらのホテルはrankingsデータに未登録です: " + " / ".join(missing))
+
 
 # フィルタ適用
 if "date" not in rankings.columns:
