@@ -45,6 +45,11 @@ def load_competitors():
     return df
 
 rankings = load_rankings()
+
+rankings["date"] = pd.to_datetime(rankings["date"], errors="coerce")
+rankings = rankings.dropna(subset=["date"])
+rankings = rankings.sort_values("date")
+
 comps = load_competitors()
 
 # UI ヘッダ
