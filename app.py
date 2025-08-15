@@ -101,6 +101,14 @@ with st.expander("データソース設定（任意：Googleスプレッドシ�
     )
     st.session_state["csv_url"] = csv_url
 
+# ---- 強制再読込ボタン（キャッシュ無視） ----
+cols = st.columns([1,4])
+with cols[0]:
+    if st.button("🔄 再読込"):
+        st.cache_data.clear()
+        st.rerun()
+
+
 # 読み込み
 raw = load_csv(csv_url) if csv_url else load_csv("data/rankings.csv")
 df = normalize_columns(raw)
