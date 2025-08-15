@@ -1,31 +1,26 @@
 # app.py
-import streamlit as st
-import pandas as pd
-import numpy as np
+# MEO 監視＆提案ツール（1KW × 10ホテル 版）
+# - 公開CSV（Googleスプレッドシートの “rankings” をCSV公開）を読み込み
+# - キーワードでフィルタ、ホテルを選択
+# - KPI（自館の現在順位/競合ベスト/平均）をNaN安全に表示
+# - 順位推移チャートと簡易KPIテーブルを表示
+# 期待CSV列: date, keyword, hotel, rank
+
+import os
 from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
+import streamlit as st
 import plotly.express as px
 
-# --------------------------------------------------------------------------------------
-# ページ設定
-# --------------------------------------------------------------------------------------
+# ==== ページ設定 ============================================================
 st.set_page_config(page_title="MEO 監視＆提案ツール（デモ）", layout="wide")
 
-# --------------------------------------------------------------------------------------
-# 固定：商戦向けキーワード（5つ）
-# --------------------------------------------------------------------------------------
-KEYWORDS_FIXED = [
-    "心斎橋 ホテル",
-    "なんば ホテル",
-    "心斎橋 ビジネスホテル",
-    "難波 ビジネスホテル",
-    "大阪 難波 ホテル",
-]
-
-# --------------------------------------------------------------------------------------
-# 固定：競合ホテル（7軒）
-# ※ CSV側の表記と揃うほど初期選択がキレイに効きます
-# --------------------------------------------------------------------------------------
-COMPETITOR_HOTELS_FIXED = [
+# ==== 自館・監視対象（10ホテル） ===========================================
+MY_HOTEL = "ホテルザグランデ"
+TARGET_HOTELS = [
+    "ホテルザグランデ",                        # 自館
     "ホテルヒラリーズ心斎橋",
     "ドーミーイン PREMIUM なんば",
     "ホテルモントレ グラスミア大阪",
@@ -33,306 +28,226 @@ COMPETITOR_HOTELS_FIXED = [
     "DEL style 大阪心斎橋 by Daiwa Roynet Hotel",
     "ホテルロイヤルクラシック大阪",
     "クロスホテル大阪",
+    "ホテルコード心斎橋",                      # ← 追加
+    "コンフォートホテル大阪心斎橋",            # ← 追加
 ]
+DEFAULT_KW = "心斎橋 ホテル"
 
-# --------------------------------------------------------------------------------------
-# データ読み込み（CSV or 擬似データ）
-# --------------------------------------------------------------------------------------
-@st.cache_data
-def load_rankings_from_local():
-    """data/rankings.csv を読む。無ければ None を返す"""
+# ==== ユーティリティ ========================================================
+@st.cache_data(ttl=600)
+def load_csv(url_or_path: str) -> pd.DataFrame:
     try:
-        df = pd.read_csv("data/rankings.csv")
+        df = pd.read_csv(url_or_path)
         return df
     except Exception:
-        return None
+        # ローカルのデモCSV（無い場合は空DataFrame）
+        fallback = "data/rankings.csv"
+        if os.path.exists(fallback):
+            return pd.read_csv(fallback)
+        return pd.DataFrame(columns=["date", "keyword", "hotel", "rank"])
 
-@st.cache_data
-def load_competitors_from_local():
-    """data/competitors.csv を読む。無ければデフォルトDataFrameを返す"""
-    try:
-        df = pd.read_csv("data/competitors.csv")
-        return df
-    except Exception:
-        df = pd.DataFrame([
-            ["ホテルザグランデ", 85, 420, 4.3, 0, "月1回"],
-            ["ホテルヒラリーズ心斎橋", 90, 650, 4.3, 2, "週1回"],
-            ["ドーミーイン PREMIUM なんば", 93, 1200, 4.5, 3, "週2回"],
-            ["ホテルモントレ グラスミア大阪", 91, 2100, 4.4, 1, "週1回"],
-            ["KOKO HOTEL 大阪心斎橋", 88, 900, 4.2, 1, "週1回"],
-            ["DEL style 大阪心斎橋 by Daiwa Roynet Hotel", 89, 800, 4.2, 1, "週1回"],
-            ["ホテルロイヤルクラシック大阪", 95, 2500, 4.6, 2, "週1回"],
-            ["クロスホテル大阪", 94, 3000, 4.5, 2, "週2回"],
-        ], columns=["hotel","score","reviews","rating","photos_added_this_week","post_freq"])
-        return df
-
-@st.cache_data
-def generate_synthetic_rankings(days=30, seed=42):
-    """擬似データ生成：過去days日 x 固定KW x （自館＋競合）"""
-    rng = np.random.default_rng(seed)
-    dates = pd.date_range(datetime.today().date() - timedelta(days=days-1), periods=days, freq="D")
-    keywords = KEYWORDS_FIXED
-    hotels = (["ホテルザグランデ"] + COMPETITOR_HOTELS_FIXED)[:8]  # 自館＋主要競合（最大8軸程度）
-    rows = []
-    for kw in keywords:
-        base_rank = rng.integers(2, 6)  # 自館の基準位置
-        for h in hotels:
-            hotel_offset = 0 if h == "ホテルザグランデ" else rng.integers(0, 5)
-            drift = rng.normal(0, 0.05)
-            cur = base_rank + hotel_offset + drift
-            for i, d in enumerate(dates):
-                noise = rng.normal(0, 0.6)
-                rank = cur + noise + (i * 0.02 if h != "ホテルザグランデ" else 0)
-                rank = int(max(1, min(15, round(rank))))
-                rows.append([d, kw, h, rank])
-    df = pd.DataFrame(rows, columns=["date", "keyword", "hotel", "rank"])
-    return df
-
-@st.cache_data
-def load_rankings_from_url(csv_url: str):
-    """公開CSV（Googleスプレッドシート等）から読む"""
-    df = pd.read_csv(csv_url)
-    return df
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    cols = {c.lower().strip(): c for c in df.columns}
+    # 必須列マッピング（大文字/全角スペースなどを吸収）
+    mapping = {}
+    for need in ["date", "keyword", "hotel", "rank"]:
+        found = None
+        for c in df.columns:
+            key = c.lower().strip().replace("　", " ")
+            if key == need:
+                found = c
+                break
+        if found is None:
+            # 代表的な別名候補
+            for c in df.columns:
+                key = c.lower().strip().replace("　", " ")
+                if need == "date" and key in ["日付", "date"]:
+                    found = c; break
+                if need == "keyword" and key in ["kw", "キーワード", "keyword"]:
+                    found = c; break
+                if need == "hotel" and key in ["施設", "ホテル", "hotel"]:
+                    found = c; break
+                if need == "rank" and key in ["順位", "rank"]:
+                    found = c; break
+        if found:
+            mapping[found] = need
+    if mapping:
+        df = df.rename(columns=mapping)
+    # 欠損列を補完
+    for need in ["date", "keyword", "hotel", "rank"]:
+        if need not in df.columns:
+            df[need] = np.nan
+    return df[["date", "keyword", "hotel", "rank"]].copy()
 
 def to_datetime_and_sort(df: pd.DataFrame) -> pd.DataFrame:
-    """date列をdatetime64化し、NaT除去→昇順ソート"""
-    if "date" not in df.columns:
-        return df
-    df = df.copy()
+    # 日付をdatetimeに
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"]).sort_values("date")
-    return df
+    # rankを数値化（NaNはNaNのまま）
+    df["rank"] = pd.to_numeric(df["rank"], errors="coerce")
+    # ホテル名の前後スペースを正規化
+    df["hotel"] = df["hotel"].astype(str).str.strip()
+    return df.sort_values(["date", "hotel"]).reset_index(drop=True)
 
-def uniq_sorted_str(series: pd.Series):
-    """NaN除去→文字列化→ユニーク→ソート"""
-    return sorted(series.dropna().astype(str).unique().tolist())
+def guard_df(df: pd.DataFrame) -> bool:
+    return (not df.empty) and df["date"].notna().any()
 
-# --------------------------------------------------------------------------------------
-# サイド/上部：データソース切替（任意）
-# --------------------------------------------------------------------------------------
-with st.expander("データソース設定（任意：Googleスプレッドシートの公開CSV URLを貼ると自動読込）", expanded=False):
-    csv_url_input = st.text_input(
-        "公開CSVのURL（空欄ならローカルCSV→無ければ擬似データ）",
-        value="",
-        placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv",
+# ==== データソース設定（公開CSV URL） ======================================
+with st.expander("データソース設定（任意：Googleスプレッドシートの公開CSV URLを貼ると自動読み込み）", expanded=True):
+    default_url = st.session_state.get("csv_url", "")
+    csv_url = st.text_input(
+        "公開CSVのURL（空欄ならローカルCSV。無ければ模擬データ）",
+        value=default_url,
+        placeholder="https://docs.google.com/spreadsheets/d/......../pub?gid=...&single=true&output=csv",
     )
+    st.session_state["csv_url"] = csv_url
 
-# ランキングデータの確定（優先順位：URL > ローカルCSV > 擬似）
-rankings_raw = None
-if csv_url_input.strip():
-    try:
-        rankings_raw = load_rankings_from_url(csv_url_input.strip())
-        st.success("公開CSVから読み込みました。")
-    except Exception as e:
-        st.warning(f"公開CSVの読込に失敗：{e}。ローカルCSV/擬似データへフォールバックします。")
+# 読み込み
+raw = load_csv(csv_url) if csv_url else load_csv("data/rankings.csv")
+df = normalize_columns(raw)
+df = to_datetime_and_sort(df)
 
-if rankings_raw is None:
-    rankings_raw = load_rankings_from_local()
-    if rankings_raw is not None:
-        st.info("data/rankings.csv を読み込みました。")
+if guard_df(df):
+    st.success("公開CSVから読み込みました。")
+else:
+    st.warning("有効なデータが見つかりませんでした（ヘッダ: date, keyword, hotel, rank）。")
 
-if rankings_raw is None:
-    rankings_raw = generate_synthetic_rankings()
-    st.info("擬似データで表示しています。公開CSVまたは data/rankings.csv を用意すると置き換わります。")
-
-# 前処理：date型統一
-rankings = to_datetime_and_sort(rankings_raw)
-
-# 日付整形の直後に追加
-if "rank" in rankings.columns:
-    rankings["rank"] = pd.to_numeric(rankings["rank"], errors="coerce")
-
-
-# 競合KPI（ローカル or デフォルト）
-comps = load_competitors_from_local()
-
-# --------------------------------------------------------------------------------------
-# UI：フィルタ（KW・期間・ホテル）
-# --------------------------------------------------------------------------------------
+# ==== UI（フィルタ） ========================================================
 st.title("MEO 監視＆提案ツール（デモ）")
 
-col_f1, col_f2, col_f3 = st.columns([1,1,2])
+# キーワード（1本運用だがCSVから存在するものを採用）
+kw_list = sorted([k for k in df["keyword"].dropna().unique().tolist() if str(k).strip() != ""])
+if DEFAULT_KW in kw_list:
+    current_kw = DEFAULT_KW
+elif kw_list:
+    current_kw = kw_list[0]
+else:
+    # データが空なら既定KW
+    current_kw = DEFAULT_KW
 
-with col_f1:
-    data_kws = uniq_sorted_str(rankings["keyword"]) if "keyword" in rankings.columns else []
-    # 表示候補：固定KW + データ上のKW（重複除去）
-    kw_options = list(dict.fromkeys(KEYWORDS_FIXED + [k for k in data_kws if k not in KEYWORDS_FIXED]))
-    # 既定選択：固定KWのうち「データにあるもの」→ なければ data_kws 先頭 → 固定1つ目
-    default_kw = next((k for k in KEYWORDS_FIXED if k in data_kws), (data_kws[0] if data_kws else KEYWORDS_FIXED[0]))
-    kw = st.selectbox("キーワード", kw_options, index=kw_options.index(default_kw))
+col_kw, col_days = st.columns([1,1])
+with col_kw:
+    kw = st.selectbox("キーワード", options=kw_list if kw_list else [current_kw], index=(kw_list.index(current_kw) if current_kw in kw_list else 0))
+with col_days:
+    days = st.slider("表示日数", min_value=7, max_value=90, value=30)
 
-with col_f2:
-    days = st.slider("表示日数", min_value=7, max_value=90, value=30, step=1)
+# ホテル選択（CSVに存在するものだけ初期選択）
+exist_hotels = sorted(df["hotel"].dropna().unique().tolist())
+default_hotels = [h for h in TARGET_HOTELS if h in exist_hotels] or exist_hotels
+selected_hotels = st.multiselect("ホテル選択", options=exist_hotels, default=default_hotels)
 
-with col_f3:
-    data_hotels = uniq_sorted_str(rankings["hotel"]) if "hotel" in rankings.columns else []
-    # 表示候補：データのホテル + 自館 + 固定競合 を統合（重複除去）
-    hotels_all = list(dict.fromkeys(data_hotels + ["ホテルザグランデ"] + COMPETITOR_HOTELS_FIXED))
-    # 既定選択：自館 + 固定競合（リストにあるものだけ）
-    default_hotels = ["ホテルザグランデ"] + COMPETITOR_HOTELS_FIXED
-    show_hotels = st.multiselect("ホテル選択", hotels_all, default=[h for h in default_hotels if h in hotels_all])
+# ==== データ絞り込み ========================================================
+cutoff = df["date"].max() - pd.to_timedelta(days-1, "D") if guard_df(df) else None
+view = df[(df["keyword"] == kw) & (df["hotel"].isin(selected_hotels))].copy()
+if cutoff is not None:
+    view = view[view["date"] >= cutoff]
 
-    # データに無いホテルが選択された場合の注意書き
-    missing = [h for h in show_hotels if h not in data_hotels]
-    if missing:
-        st.caption("⚠️ これらのホテルはrankingsデータに未登録です: " + " / ".join(missing))
-
-
-# フィルタ適用
-if "date" not in rankings.columns:
-    st.error("データに 'date' 列がありません。CSVのヘッダを確認してください。")
-    st.stop()
-
-cutoff = rankings["date"].max() - pd.to_timedelta(days-1, unit="D")
-dfv = rankings[
-    (rankings["keyword"].astype(str) == str(kw)) &
-    (rankings["hotel"].isin(show_hotels)) &
-    (rankings["date"] >= cutoff)
-].copy()
-
-# 空データのガード
-if dfv.empty:
-    st.info("選択条件に一致するデータがありません。CSV/スプレッドシート、フィルタ条件をご確認ください。")
-    st.stop()
-
-# --------------------------------------------------------------------------------------
-# KPI（現時点順位・先週比など）
-# --------------------------------------------------------------------------------------
-today = dfv["date"].max()
-last_week = today - pd.to_timedelta(7, "D")
-today_rows = dfv[dfv["date"] == today]
-lw_rows = dfv[dfv["date"] == last_week]
-
-def get_rank(hotel_name: str, frame: pd.DataFrame):
-    r = frame[frame["hotel"] == hotel_name]
-    return int(r["rank"].values[0]) if not r.empty else None
-
-# ーー KPI（NaN安全版）ここから ーー
-today = dfv["date"].max()
-last_week = today - pd.to_timedelta(7, "D")
-today_rows = dfv[dfv["date"] == today].copy()
-lw_rows    = dfv[dfv["date"] == last_week].copy()
-
+# ==== KPI（NaN安全） ========================================================
 def safe_int(v):
     return int(v) if pd.notna(v) else None
 
-def get_rank(hotel_name: str, frame: pd.DataFrame):
-    r = frame[frame["hotel"] == hotel_name]
+def get_rank(hotel_name: str, frame: pd.DataFrame, on_date: pd.Timestamp):
+    r = frame[(frame["hotel"] == hotel_name) & (frame["date"] == on_date)]
     if r.empty:
         return None
     return safe_int(r["rank"].values[0])
 
-c1, c2, c3 = st.columns(3)
+if guard_df(view) and not view.empty:
+    today = view["date"].max()
+    last_week = today - pd.to_timedelta(7, "D")
+    today_rows = view[view["date"] == today].copy()
+    lw_rows    = view[view["date"] == last_week].copy()
 
-# 自館の今日/先週
-MY_HOTEL = "ホテルザグランデ"
-my_rank_today = get_rank(MY_HOTEL, today_rows)
-my_rank_lw    = get_rank(MY_HOTEL, lw_rows)
-delta = None
-if (my_rank_today is not None) and (my_rank_lw is not None):
-    delta = my_rank_lw - my_rank_today  # 良化でプラス表示
+    c1, c2, c3 = st.columns(3)
 
-c1.metric(
-    "現在順位（自館）",
-    f"{my_rank_today if my_rank_today is not None else '-'} 位",
-    f"{'+' if (delta is not None and delta >= 0) else ''}{delta if delta is not None else 0} vs 先週"
-)
+    # 自館
+    my_rank_today = get_rank(MY_HOTEL, view, today)
+    my_rank_lw    = get_rank(MY_HOTEL, view, last_week)
+    delta = None
+    if (my_rank_today is not None) and (my_rank_lw is not None):
+        delta = my_rank_lw - my_rank_today  # 改善はプラス
 
-# 競合ベスト（NaN除外）
-comp_pool = today_rows[
-    (today_rows["hotel"] != MY_HOTEL) & (pd.notna(today_rows["rank"]))
-]
-if comp_pool.empty:
-    best_hotel, best_rank = "-", "-"
+    c1.metric(
+        "現在順位（自館）",
+        f"{my_rank_today if my_rank_today is not None else '-'} 位",
+        f"{'+' if (delta is not None and delta >= 0) else ''}{delta if delta is not None else 0} vs 先週",
+    )
+
+    # 競合ベスト
+    comp_pool = today_rows[(today_rows["hotel"] != MY_HOTEL) & (pd.notna(today_rows["rank"]))].copy()
+    if comp_pool.empty:
+        best_hotel, best_rank = "-", "-"
+    else:
+        comp_best = comp_pool.nsmallest(1, "rank")
+        best_hotel = comp_best["hotel"].values[0]
+        best_rank_val = comp_best["rank"].values[0]
+        best_rank = safe_int(best_rank_val) if best_rank_val is not None else "-"
+    c2.metric("競合ベスト順位", f"{best_rank} 位" if best_rank != "-" else "-", best_hotel)
+
+    # 平均（NaN除外）
+    avg_rank = today_rows["rank"].dropna().mean()
+    c3.metric("今日の平均順位（選択ホテル）", f"{avg_rank:.1f}" if pd.notna(avg_rank) else "–")
+
+    if today_rows["rank"].isna().any():
+        st.caption("ℹ️ 一部ホテルの rank が未入力です（平均や競合ベストに反映されません）。")
 else:
-    comp_best = comp_pool.nsmallest(1, "rank")
-    best_hotel = comp_best["hotel"].values[0]
-    best_rank_val = comp_best["rank"].values[0]
-    best_rank = safe_int(best_rank_val) if best_rank_val is not None else "-"
+    st.info("この条件でのデータがありません。rankの入力や日数を確認してください。")
 
-c2.metric("競合ベスト順位", f"{best_rank} 位" if best_rank != "-" else "-", best_hotel)
-
-# 平均順位（NaN除外）
-avg_rank = today_rows["rank"].dropna().mean()
-c3.metric("今日の平均順位（選択ホテル）", f"{avg_rank:.1f}" if pd.notna(avg_rank) else "-")
-
-# 入力不足の注意
-if today_rows["rank"].isna().any():
-    st.caption("ℹ️ 一部ホテルの rank が未入力です（平均や競合ベストに反映されません）。")
-# ーー KPI（NaN安全版）ここまで ーー
-
-
-st.divider()
-
-# --------------------------------------------------------------------------------------
-# グラフ：順位推移
-# --------------------------------------------------------------------------------------
+# ==== 順位推移（Plotly） ====================================================
 st.subheader(f"順位推移：{kw}")
-fig = px.line(dfv, x="date", y="rank", color="hotel", markers=True)
-fig.update_yaxes(autorange="reversed", title="順位（1位が上）", range=[max(15, dfv['rank'].max()+1), 1])
-fig.update_xaxes(title="日付")
-st.plotly_chart(fig, use_container_width=True)
+if not view.empty:
+    chart_df = view.copy()
+    chart_df["rank"] = pd.to_numeric(chart_df["rank"], errors="coerce")
+    fig = px.line(
+        chart_df,
+        x="date",
+        y="rank",
+        color="hotel",
+        markers=True,
+        title=None,
+    )
+    # 順位は小さいほど上なのでY軸を反転
+    fig.update_yaxes(autorange="reversed", title_text="順位（上位が上）")
+    fig.update_xaxes(title_text="日付")
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.write("データなし")
 
-st.divider()
+# ==== 簡易 競合比較（スコア＆KPIテーブル：ダミー or 外部CSV） ===============
+# ここはデモ用。実運用では別CSV/スプレッドシートに載せればOK。
+def load_competitors() -> pd.DataFrame:
+    path = "data/competitors.csv"
+    if os.path.exists(path):
+        try:
+            dfc = pd.read_csv(path)
+            return dfc
+        except Exception:
+            pass
+    # サンプル（3行）
+    return pd.DataFrame({
+        "hotel": ["ホテルザグランデ", "ホテルA", "ホテルB"],
+        "score": [85, 92, 88],
+        "reviews": [420, 358, 290],
+        "rating": [4.3, 4.5, 4.4],
+        "photos_added_this_week": [0, 3, 1],
+        "post_freq": ["月1回", "週2回", "週1回"],
+        "優位/要改善": ["★自館", "", ""],
+    })
 
-# --------------------------------------------------------------------------------------
-# 競合比較テーブル：色付け（matplotlibが必要）
-# --------------------------------------------------------------------------------------
 st.subheader("競合比較（スコア＆KPI）")
-show = comps.copy()
-# 自館行が無ければ追加（スコアは仮）
-if "ホテルザグランデ" not in set(show["hotel"]):
-    show = pd.concat([
-        pd.DataFrame([["ホテルザグランデ", 85, 420, 4.3, 0, "月1回"]],
-                     columns=show.columns),
-        show
-    ], ignore_index=True)
+comp = load_competitors()
+if not comp.empty:
+    try:
+        st.dataframe(
+            comp.style
+            .background_gradient(subset=["score"], cmap="Greens")
+            .background_gradient(subset=["reviews"], cmap="Blues")
+            .background_gradient(subset=["rating"], cmap="Oranges"),
+            use_container_width=True
+        )
+    except Exception:
+        st.dataframe(comp, use_container_width=True)
+else:
+    st.write("（KPIデータ未設定）")
 
-show["優位/要改善"] = np.where(show["hotel"] == "ホテルザグランデ", "★自館", "")
-
-try:
-    styled = (show.style
-              .background_gradient(subset=["score"], cmap="Greens")
-              .background_gradient(subset=["reviews"], cmap="Blues")
-              .background_gradient(subset=["rating"], cmap="Oranges"))
-    st.dataframe(styled, use_container_width=True)
-except Exception:
-    # 万一matplotlib未導入でも表示は継続
-    st.dataframe(show, use_container_width=True)
-
-st.divider()
-
-# --------------------------------------------------------------------------------------
-# 改善提案（シンプルなサンプルロジック）
-# --------------------------------------------------------------------------------------
-st.subheader("自動改善提案（サンプル）")
-suggestions = []
-
-# 1) 急落アラート（当日 vs 前日）
-yest = today - pd.to_timedelta(1, "D")
-my_yest = get_rank("ホテルザグランデ", dfv[dfv["date"] == yest])
-if (my_rank_today is not None) and (my_yest is not None) and (my_rank_today - my_yest >= 3):
-    suggestions.append(f"⚠️ 順位急落：{kw} で {my_yest}位 → {my_rank_today}位（-{my_rank_today - my_yest}）")
-
-# 2) 競合ベストに劣後 → 打ち手
-if isinstance(best_rank, int) and (my_rank_today is not None) and (my_rank_today > best_rank):
-    # 競合の活動量をざっくり参照（もっともスコアが高い競合）
-    comp_row = show[show["hotel"] != "ホテルザグランデ"].sort_values("score", ascending=False).head(1)
-    if not comp_row.empty:
-        photos_add = int(comp_row["photos_added_this_week"].values[0]) if "photos_added_this_week" in comp_row else 0
-        if photos_add >= 2:
-            suggestions.append("🖼️ 写真追加推奨：上位競合が今週2枚以上追加。今週は館内写真を3枚追加。")
-    suggestions.append("📝 最新情報の投稿頻度強化：週2回を目標。")
-    suggestions.append(f"🗺️ 説明文微修正：『{kw}』を自然に含める。")
-
-# 3) トップ5防衛
-if (my_rank_today is not None) and (my_rank_today > 5):
-    suggestions.append("🎯 トップ5復帰：写真3枚・最新情報2本・Q&A1件を今週中に。")
-
-if not suggestions:
-    suggestions = ["✅ 先週比で良好。今週は現状維持（写真1枚追加のみ）でOK。"]
-
-for s in suggestions:
-    st.write("- " + s)
-
-st.caption("※ ロジックはデモ用。自館/競合の実データに合わせて閾値・提案内容はチューニングします。")
+# ==== 末尾メモ ==============================================================
+st.caption("※ rankは手動入力です。運用は『1KW×10ホテル（週10件入力）』に最適化。未入力があっても落ちません。")
