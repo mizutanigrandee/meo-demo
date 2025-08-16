@@ -238,8 +238,8 @@ else:
     st.write("データなし")
 
 # 自館の線を太く＆前面に
-if not view.empty:
-    fig.for_each_trace(lambda tr: tr.update(line=dict(width=4)) if tr.name == MY_HOTEL else None)
+fig.for_each_trace(lambda tr: tr.update(line=dict(width=4)) if tr.name == MY_HOTEL else None)
+
 
 
 # ==== 簡易 競合比較（スコア＆KPIテーブル：ダミー or 外部CSV） ===============
