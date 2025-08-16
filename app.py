@@ -269,21 +269,59 @@ def load_competitors() -> pd.DataFrame:
         "優位/要改善": ["★自館", "", ""],
     })
 
-st.subheader("競合比較（スコア＆KPI）")
-comp = load_competitors()
-if not comp.empty:
+# ==== 競合比較（rankingsベースの即席KPI） ==================================
+st.subheader("競合比較（直近KPI｜rankings由来）")
+
+if not view.empty:
+    # 対象期間のデータを数値化
+    period_df = view.copy()
+    period_df["rank"] = pd.to_numeric(period_df["rank"], errors="coerce")
+
+    # 今日と先週同日の判定
+    today = period_df["date"].max()
+    last_week = today - pd.to_timedelta(7, "D")
+
+    # 今日・先週の単日データ
+    today_df = period_df[period_df["date"] == today][["hotel", "rank"]].rename(columns={"rank": "今日"})
+    lw_df    = period_df[period_df["date"] == last_week][["hotel", "rank"]].rename(columns={"rank": "先週"})
+
+    # 期間KPI（ベスト/平均/入力件数）
+    base = (
+        period_df.groupby("hotel", as_index=False)
+        .agg(ベスト=("rank", "min"), 平均=("rank", "mean"), 入力件数=("rank", "count"))
+    )
+
+    # マージ → Δ vs 先週、入力率(期間)
+    comp_df = (
+        base.merge(today_df, on="hotel", how="left")
+            .merge(lw_df, on="hotel", how="left")
+            .sort_values(["今日", "ベスト"], ascending=[True, True])
+            .reset_index(drop=True)
+    )
+    comp_df["Δvs先週"] = comp_df["先週"] - comp_df["今日"]
+
+    period_days = period_df["date"].nunique()  # 期間内の日数（スライダーの実日数と対応）
+    comp_df["入力率(期間)"] = (
+        (comp_df["入力件数"] / period_days * 100).round(0).clip(lower=0, upper=100)
+    )
+
+    # 列順を整える
+    cols = ["hotel", "今日", "先週", "Δvs先週", "ベスト", "平均", "入力件数", "入力率(期間)"]
+    show = comp_df[cols]
+
+    # スタイル：ベスト/平均をハイライト
     try:
         st.dataframe(
-            comp.style
-            .background_gradient(subset=["score"], cmap="Greens")
-            .background_gradient(subset=["reviews"], cmap="Blues")
-            .background_gradient(subset=["rating"], cmap="Oranges"),
+            show.style
+                .background_gradient(subset=["ベスト"], cmap="Greens")
+                .background_gradient(subset=["平均"], cmap="Blues"),
             use_container_width=True
         )
     except Exception:
-        st.dataframe(comp, use_container_width=True)
+        st.dataframe(show, use_container_width=True)
 else:
-    st.write("（KPIデータ未設定）")
+    st.write("（この条件のデータがありません）")
+
 
 # ==== 末尾メモ ==============================================================
 st.caption("※ rankは手動入力です。運用は『1KW×10ホテル（週10件入力）』に最適化。未入力があっても落ちません。")
