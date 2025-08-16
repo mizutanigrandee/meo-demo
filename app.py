@@ -39,6 +39,10 @@ TARGET_HOTELS = [
 ]
 DEFAULT_KW = "心斎橋 ホテル"
 
+# ==== 公開CSVデフォルトURL（固定用） =======================================
+DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/【あなたのrankingsシートのgid付きURL】/pub?gid=xxxx&single=true&output=csv"
+
+
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = {c.lower().strip(): c for c in df.columns}
     # 必須列マッピング（大文字/全角スペースなどを吸収）
@@ -86,13 +90,15 @@ def guard_df(df: pd.DataFrame) -> bool:
 
 # ==== データソース設定（公開CSV URL） ======================================
 with st.expander("データソース設定（任意：Googleスプレッドシートの公開CSV URLを貼ると自動読み込み）", expanded=True):
-    default_url = st.session_state.get("csv_url", "")
+    # もし session_state に残っていればそれを優先、なければ DEFAULT_CSV_URL を初期値に
+    default_url = st.session_state.get("csv_url", DEFAULT_CSV_URL)
     csv_url = st.text_input(
         "公開CSVのURL（空欄ならローカルCSV。無ければ模擬データ）",
         value=default_url,
-        placeholder="https://docs.google.com/spreadsheets/d/e/2PACX-1vRYbCtXeY5ySt_2VqeT5tDsT5nvnYK-3gOyCrvaJUAp1euQ_b3Nx7_p7tnHR91Fa-FkIyLalBlQPT_5/pub?gid=0&single=true&output=csv",
+        placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=xxxx&single=true&output=csv",
     )
     st.session_state["csv_url"] = csv_url
+
 
 # ---- 強制再読込ボタン（キャッシュ無視） ----
 cols = st.columns([1,4])
