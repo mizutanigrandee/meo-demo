@@ -40,7 +40,7 @@ TARGET_HOTELS = [
 DEFAULT_KW = "心斎橋 ホテル"
 
 # ==== 公開CSVデフォルトURL（固定用） =======================================
-DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/【あなたのrankingsシートのgid付きURL】/pub?gid=xxxx&single=true&output=csv"
+DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRYbCtXeY5ySt_2VqeT5tDsT5nvnYK-3gOyCrvaJUAp1euQ_b3Nx7_p7tnHR91Fa-FkIyLalBlQPT_5/pub?gid=0&single=true&output=csv"
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +95,7 @@ with st.expander("データソース設定（任意：Googleスプレッドシ�
     csv_url = st.text_input(
         "公開CSVのURL（空欄ならローカルCSV。無ければ模擬データ）",
         value=default_url,
-        placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=xxxx&single=true&output=csv",
+        placeholder="https://docs.google.com/spreadsheets/d/e/2PACX-1vRYbCtXeY5ySt_2VqeT5tDsT5nvnYK-3gOyCrvaJUAp1euQ_b3Nx7_p7tnHR91Fa-FkIyLalBlQPT_5/pub?gid=0&single=true&output=csv",
     )
     st.session_state["csv_url"] = csv_url
 
