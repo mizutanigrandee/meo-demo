@@ -221,19 +221,25 @@ st.subheader(f"順位推移：{kw}")
 if not view.empty:
     chart_df = view.copy()
     chart_df["rank"] = pd.to_numeric(chart_df["rank"], errors="coerce")
-    fig = px.line(
-        chart_df,
-        x="date",
-        y="rank",
-        color="hotel",
-        markers=True,
-        title=None,
-    )
-    # Y軸：整数刻み、反転（小さいほど上位）
-    fig.update_yaxes(autorange="reversed", title_text="順位（上位が上）", tickmode="linear", dtick=1)
-    # X軸：日付表示を日単位で
-    fig.update_xaxes(title_text="日付", tickformat="%b %d", rangeslider_visible=False)
-    st.plotly_chart(fig, use_container_width=True)
+fig = px.line(
+    chart_df,
+    x="date",
+    y="rank",
+    color="hotel",
+    markers=True,
+    title=None,
+)
+
+# 自館の線を太く＆前面に（←ここに置く！）
+fig.for_each_trace(lambda tr: tr.update(line=dict(width=4)) if tr.name == MY_HOTEL else None)
+
+# Y軸：整数刻み、反転（小さいほど上位）
+fig.update_yaxes(autorange="reversed", title_text="順位（上位が上）", tickmode="linear", dtick=1)
+
+# X軸：日付表示を日単位で
+fig.update_xaxes(title_text="日付", tickformat="%b %d", rangeslider_visible=False)
+st.plotly_chart(fig, use_container_width=True)
+
 else:
     st.write("データなし")
 
