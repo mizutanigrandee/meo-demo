@@ -198,16 +198,16 @@ if guard_df(view) and not view.empty:
     c3.metric("今日の平均順位（選択ホテル）", f"{avg_rank:.1f}" if pd.notna(avg_rank) else "–")
 
     # 追加KPI：本日の入力率（選択ホテル）
-total_today = len(today_rows)
-filled_today = today_rows["rank"].notna().sum()
-rate = (filled_today / total_today * 100) if total_today else 0
-st.metric("本日の入力率", f"{rate:.0f}%", f"未入力 {total_today - filled_today} 件")
-
+    total_today = len(today_rows)
+    filled_today = today_rows["rank"].notna().sum()
+    rate = (filled_today / total_today * 100) if total_today else 0
+    st.metric("本日の入力率", f"{rate:.0f}%", f"未入力 {total_today - filled_today} 件")
 
     if today_rows["rank"].isna().any():
         st.caption("ℹ️ 一部ホテルの rank が未入力です（平均や競合ベストに反映されません）。")
 else:
     st.info("この条件でのデータがありません。rankの入力や日数を確認してください。")
+
 
 # ==== 読込タイムスタンプ表示 ===============================================
 from zoneinfo import ZoneInfo  # 先頭でimport済みなら不要
