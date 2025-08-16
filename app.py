@@ -39,8 +39,6 @@ TARGET_HOTELS = [
 ]
 DEFAULT_KW = "心斎橋 ホテル"
 
-
-
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = {c.lower().strip(): c for c in df.columns}
     # 必須列マッピング（大文字/全角スペースなどを吸収）
@@ -103,9 +101,12 @@ with cols[0]:
         st.cache_data.clear()
         st.rerun()
 
+# 読み込み（← load_data に統一）
+try:
+    raw = load_data(csv_url) if csv_url else load_data("data/rankings.csv")
+except Exception:
+    raw = pd.DataFrame(columns=["date", "keyword", "hotel", "rank"])
 
-# 読み込み
-raw = load_csv(csv_url) if csv_url else load_csv("data/rankings.csv")
 df = normalize_columns(raw)
 df = to_datetime_and_sort(df)
 
@@ -195,6 +196,12 @@ if guard_df(view) and not view.empty:
 else:
     st.info("この条件でのデータがありません。rankの入力や日数を確認してください。")
 
+# ==== 読込タイムスタンプ表示 ===============================================
+st.caption(
+    f"最終読込: {pd.Timestamp.utcnow().tz_localize('UTC').tz_convert('Asia/Tokyo').strftime('%Y-%m-%d %H:%M:%S')} JST（キャッシュTTL 1時間）"
+)
+
+
 # ==== 順位推移（Plotly） ====================================================
 st.subheader(f"順位推移：{kw}")
 if not view.empty:
@@ -216,7 +223,6 @@ else:
     st.write("データなし")
 
 # ==== 簡易 競合比較（スコア＆KPIテーブル：ダミー or 外部CSV） ===============
-# ここはデモ用。実運用では別CSV/スプレッドシートに載せればOK。
 def load_competitors() -> pd.DataFrame:
     path = "data/competitors.csv"
     if os.path.exists(path):
