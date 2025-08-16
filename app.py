@@ -197,9 +197,10 @@ else:
     st.info("この条件でのデータがありません。rankの入力や日数を確認してください。")
 
 # ==== 読込タイムスタンプ表示 ===============================================
-st.caption(
-    f"最終読込: {pd.Timestamp.utcnow().tz_localize('UTC').tz_convert('Asia/Tokyo').strftime('%Y-%m-%d %H:%M:%S')} JST（キャッシュTTL 1時間）"
-)
+from zoneinfo import ZoneInfo  # 先頭でimport済みなら不要
+
+jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+st.caption(f"最終読込: {jst_now:%Y-%m-%d %H:%M:%S} JST（キャッシュTTL 1時間）")
 
 
 # ==== 順位推移（Plotly） ====================================================
