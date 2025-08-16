@@ -14,6 +14,12 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
+@st.cache_data(ttl=3600)  # ← 1時間で自動的に再取得
+def load_data(url_or_path: str) -> pd.DataFrame:
+    if url_or_path:
+        return pd.read_csv(url_or_path)
+    return pd.read_csv("data/rankings.csv")
+
 # ==== ページ設定 ============================================================
 st.set_page_config(page_title="MEO 監視＆提案ツール（デモ）", layout="wide")
 
