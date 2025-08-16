@@ -197,6 +197,13 @@ if guard_df(view) and not view.empty:
     avg_rank = today_rows["rank"].dropna().mean()
     c3.metric("今日の平均順位（選択ホテル）", f"{avg_rank:.1f}" if pd.notna(avg_rank) else "–")
 
+    # 追加KPI：本日の入力率（選択ホテル）
+total_today = len(today_rows)
+filled_today = today_rows["rank"].notna().sum()
+rate = (filled_today / total_today * 100) if total_today else 0
+st.metric("本日の入力率", f"{rate:.0f}%", f"未入力 {total_today - filled_today} 件")
+
+
     if today_rows["rank"].isna().any():
         st.caption("ℹ️ 一部ホテルの rank が未入力です（平均や競合ベストに反映されません）。")
 else:
@@ -222,12 +229,18 @@ if not view.empty:
         markers=True,
         title=None,
     )
-    # 順位は小さいほど上なのでY軸を反転
-    fig.update_yaxes(autorange="reversed", title_text="順位（上位が上）")
-    fig.update_xaxes(title_text="日付")
+    # Y軸：整数刻み、反転（小さいほど上位）
+    fig.update_yaxes(autorange="reversed", title_text="順位（上位が上）", tickmode="linear", dtick=1)
+    # X軸：日付表示を日単位で
+    fig.update_xaxes(title_text="日付", tickformat="%b %d", rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.write("データなし")
+
+# 自館の線を太く＆前面に
+if not view.empty:
+    fig.for_each_trace(lambda tr: tr.update(line=dict(width=4)) if tr.name == MY_HOTEL else None)
+
 
 # ==== 簡易 競合比較（スコア＆KPIテーブル：ダミー or 外部CSV） ===============
 def load_competitors() -> pd.DataFrame:
