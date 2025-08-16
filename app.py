@@ -39,18 +39,7 @@ TARGET_HOTELS = [
 ]
 DEFAULT_KW = "心斎橋 ホテル"
 
-# ==== ユーティリティ ========================================================
-@st.cache_data(ttl=60)
-def load_csv(url_or_path: str) -> pd.DataFrame:
-    try:
-        df = pd.read_csv(url_or_path)
-        return df
-    except Exception:
-        # ローカルのデモCSV（無い場合は空DataFrame）
-        fallback = "data/rankings.csv"
-        if os.path.exists(fallback):
-            return pd.read_csv(fallback)
-        return pd.DataFrame(columns=["date", "keyword", "hotel", "rank"])
+
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = {c.lower().strip(): c for c in df.columns}
